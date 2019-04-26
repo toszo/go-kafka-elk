@@ -1,0 +1,35 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: epiphany-kafka-elk-connector
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  minReadySeconds: 5
+  template:
+    metadata:
+      labels:
+        app: epiphany-kafka-elk-connector
+    spec:
+      containers:
+      - name: epiphany-kafka-elk-connector
+        image: toszo/kafka-elk-connector:0.1.1
+        imagePullPolicy: Always
+        env:
+        - name: KAFKA_URL
+          value: "10.0.4.6:9092"
+        - name: TOPIC
+          value: "iot-data" 
+        - name: GROUP_ID 
+          value: "my-consumer-group"
+        - name: ELASTIC_URL         
+          value: "http://10.0.4.9:9200"
+        - name: INDEX_NAME                    
+          value: "timeseries"
+
+

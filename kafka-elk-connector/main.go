@@ -5,16 +5,21 @@ import (
 	"fmt"
 	"log"
 	"time"
-
+	"os"
 	kafka "github.com/segmentio/kafka-go"
 	"github.com/olivere/elastic"
 	"encoding/json"
 )
 
 type IoTData struct {
-	ObjectId     string                `json:"objectid"`
-	TimeStamp  time.Time             `json:"timeStamp,omitempty"`
+	ObjectId     string                `json:"objectId"`
+	TimeStamp    time.Time             `json:"timestamp,omitempty"`	
+	Variable     string                `json:"variable,omitempty"`
+	Model   	 string                `json:"model,omitempty"`
+	Value        float64               `json:"value,omitempty"`
+	Quality      int                   `json:"quality,omitempty"`
 }
+
 
 const mapping = `
 {
@@ -25,11 +30,23 @@ const mapping = `
 	"mappings":{
 		"iotdata":{
 			"properties":{
-				"objectid":{
+				"objectId":{
 					"type":"keyword"
 				},
-				"timeStamp":{
+				"timestamp":{
 					"type":"date"
+				},
+				"variable":{
+					"type":"keyword"
+				},
+				"model":{
+					"type":"keyword"
+				},
+				"value":{
+					"type":"keyword"
+				},
+				"quality":{
+					"type":"keyword"
 				}
 			}
 		}
@@ -47,24 +64,32 @@ func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 }
 
 func main() {
-	// Starting with elastic.v5, you must pass a context to execute each service
+	// get kafka reader using environment variables.
+	kafkaURL := os.Getenv("KAFKA_URL")
+	// kafkaURL := "10.0.4.6:9092"
+	topic := os.Getenv("TOPIC")
+	//topic := "test-topic"
+	groupID := os.Getenv("GROUP_ID")
+	//groupID := "my-customer-group"
+	elasticUrl := os.Getenv("ELASTIC_URL")
+
+	elkIndexName := os.Getenv("INDEX_NAME") // iot_data
+
 	ctx := context.Background()
 
-	client, err := elastic.NewClient(elastic.SetURL("http://10.0.4.9:9200"))
+	client, err := elastic.NewClient(elastic.SetURL(elasticUrl)) // should be in format "http://x.y.z.zz:PORT"
 	if err != nil {
-		// Handle error
 		panic(err)
 	}
 
 	// Use the IndexExists service to check if a specified index exists.
-	exists, err := client.IndexExists("iot_data").Do(ctx)
+	exists, err := client.IndexExists(elkIndexName).Do(ctx)
 	if err != nil {
-		// Handle error
 		panic(err)
 	}
 	if !exists {
 		// Create a new index.
-		createIndex, err := client.CreateIndex("iot_data").BodyString(mapping).Do(ctx)
+		createIndex, err := client.CreateIndex(elkIndexName).BodyString(mapping).Do(ctx)
 		if err != nil {
 			// Handle error
 			panic(err)
@@ -74,47 +99,32 @@ func main() {
 		}
 	}
 
-	// get kafka reader using environment variables.
-	//kafkaURL := os.Getenv("kafkaURL")
-	kafkaURL := "10.0.4.6:9092"
-	//topic := os.Getenv("topic")
-	topic := "test-topic"
-	//groupID := os.Getenv("groupID")
-	groupID := "my-customer-group"
-
 	reader := getKafkaReader(kafkaURL, topic, groupID)
 
 	defer reader.Close()
 
-	fmt.Println("start consuming ... !!")
+	fmt.Printf("Start consuming Kafka: %s topic: %s, consumer group: %s, and pass to to ELK: %s, index: %s \n", kafkaURL, topic, groupID, elasticUrl, elkIndexName)
 	for {
 		m, err := reader.ReadMessage(context.Background())
 		if err != nil {
 			log.Fatalln(err)
 		}
-
+		fmt.Printf("Value %s \n", m.Value)
 		var dat IoTData
 		merr := json.Unmarshal(m.Value, &dat)
 		if merr != nil {
 			log.Fatalln(err)
 		}
-
-		fmt.Printf("Obj: %s date: %s\n", dat.ObjectId, dat.TimeStamp)
-				// Index a tweet (using JSON serialization)
-		//data := IoTData{ObjectId: "mySuperObjId", Time: time.Now()}
 		
 		put1, err := client.Index().
-			Index("iot_data").
+			Index(elkIndexName).
 			Type("iotdata").
 			Id(dat.ObjectId).
 			BodyJson(dat).
 			Do(ctx)
 		if err != nil {
-			// Handle error
 			panic(err)
 		}
 		fmt.Printf("Indexed iotdata %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
-
-		fmt.Printf("message at topic:%v partition:%v offset:%v	%s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
 	}
 }
