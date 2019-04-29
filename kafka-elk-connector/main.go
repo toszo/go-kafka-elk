@@ -12,11 +12,11 @@ import (
 )
 
 type IoTData struct {
-	ObjectId     string                `json:"objectId"`
+	ObjectId     string                `json:"objectId,omitempty"`
 	TimeStamp    time.Time             `json:"timestamp,omitempty"`	
 	Variable     string                `json:"variable,omitempty"`
 	Model   	 string                `json:"model,omitempty"`
-	Value        float64               `json:"value,omitempty"`
+	Value        *json.RawMessage                `json:"value,omitempty"`
 	Quality      int                   `json:"quality,omitempty"`
 }
 
@@ -110,21 +110,30 @@ func main() {
 			log.Fatalln(err)
 		}
 		fmt.Printf("Value %s \n", m.Value)
-		var dat IoTData
-		merr := json.Unmarshal(m.Value, &dat)
+		var items []IoTData
+		merr := json.Unmarshal(m.Value, &items)
 		if merr != nil {
+			fmt.Printf("Error, continue.")
 			log.Fatalln(err)
+
+			continue;
 		}
-		
-		put1, err := client.Index().
-			Index(elkIndexName).
-			Type("iotdata").
-			Id(dat.ObjectId).
-			BodyJson(dat).
-			Do(ctx)
-		if err != nil {
-			panic(err)
+
+		for index, dat := range items {
+			if (dat.ObjectId != "") && (dat.Model == "abb.ability.device")  {
+				fmt.Printf("Going to index: %s on item %s", dat.ObjectId, index)
+				put1, err := client.Index().
+				Index(elkIndexName).
+				Type("iotdata").
+				Id(dat.ObjectId).
+				BodyJson(dat).
+				Do(ctx)
+				if err != nil {
+					log.Fatalln(err)
+				}else{
+					fmt.Printf("Indexed iotdata %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
+				}
+			 }
 		}
-		fmt.Printf("Indexed iotdata %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
 	}
 }
